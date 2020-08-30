@@ -6,6 +6,7 @@ import glob
 import os
 import matplotlib.pyplot as plt
 import cv2
+import time
 
 import torch
 import torch.nn as nn
@@ -18,10 +19,10 @@ import torchvision.transforms as T
 from torchvision import models
 
 
-lr = 0.5
+lr = 1e-2
 epoch = 10000000
 batch = 1
-show_bs = 10
+show_bs = 100
 fit = 50
 
 device = 'cuda:0'
@@ -159,8 +160,9 @@ def NMS(class_box, class_label, class_mask, IOU_T=0.3):
         select_iou = iou(class_box,select_box)
         #iou_filter
         mask_iou = select_iou > IOU_T
+        mask_label = class_label==class_label[idx]
         #delete all > IOU_threshold including the selected box
-        box_num[mask_iou] =-999
+        box_num[mask_iou & mask_label] =-999
     return torch.stack(outbox) , torch.stack(outlabel) , torch.stack(outmask)
     
 transform = T.ToTensor()
@@ -187,13 +189,15 @@ image_tensor_origin = image_tensor.clone()
 
 bing_mask3 = torch.zeros([3,638,638],dtype=torch.bool)
 
+t0 = time.time()
+
 for i in range(epoch):
     detector.eval()
     
     results = detector(image_tensor)
     if i ==0:
-        bing_mask_01 = results[0]['masks'][results[0]['labels']==1][1]>0.0
-        bing_mask_17 = results[0]['masks'][results[0]['labels']==1][1]>0.0
+        bing_mask_01 = results[0]['masks'][results[0]['labels']==1][1]>0.5
+        bing_mask_17 = results[0]['masks'][results[0]['labels']==1][1]>0.5
         bing_mask = bing_mask_01 & bing_mask_17
         
         bing_mask3 = bing_mask.expand([3,638,638])
@@ -230,6 +234,8 @@ for i in range(epoch):
         
         show_pic(display_pic,target_boxes,target_labels,target_masks,n=i,is_mask=True)
         print(i)
+        
+        print(f'remain time: {epoch*(time.time()-t0)/(60*i+1)}')
     
     # pic = image_tensor.permute(0,2,3,1).detach().numpy()[0]
     # reT = T.Compose([T.Normalize(mean=[0., 0., 0.], std=[1/0.229, 1/0.224, 1/0.225]),
