@@ -18,9 +18,11 @@ import torchvision.transforms as T
 from torchvision import models
 
 
-lr = 1e0
+lr = 0.5
 epoch = 10000000
-batch = 100
+batch = 1
+show_bs = 10
+fit = 50
 
 device = 'cuda:0'
 
@@ -72,11 +74,34 @@ def vis_class(image, bbox, text, bg_color=_GREEN, text_color=_GRAY, font_scale=0
 
     return image
 
-def show_pic(image,boxs,labels,n=0):
+def vis_mask(image, mask, col, alpha=0.4, show_border=True, border_thick=1):
+    """Visualizes a single binary mask."""
+    image = image.astype(np.float32)
+
+    mask = mask >= 0.5
+    mask = mask.astype(np.uint8)
+    idx = np.nonzero(mask)
+
+    image[idx[0], idx[1], :] *= 1.0 - alpha
+    image[idx[0], idx[1], :] += alpha * col
+
+    if show_border:
+        contours = cv2.findContours(
+            mask.copy(), cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE)[-2]
+        cv2.drawContours(image, contours, -1, _WHITE,
+                         border_thick, cv2.LINE_AA)
+
+    return image.astype(np.uint8)
+
+def show_pic(image,boxs,labels,masks,n=0,is_mask=False):
     display_image = np.array(image)
+    masks = np.squeeze(masks.detach().cpu().numpy(), axis=1)
     for i, bbox in enumerate(boxs):
         display_image = vis_bbox(display_image, bbox)
         display_image = vis_class(display_image, bbox, _COCO_INSTANCE_CATEGORY_NAMES[labels[i]])
+        
+        if is_mask:
+            display_image = vis_mask(display_image, masks[i], np.array([0., 0., 255.]))
     
     plt.figure(figsize=(10, 10),dpi=200)
     plt.xticks([])
@@ -84,6 +109,59 @@ def show_pic(image,boxs,labels,n=0):
     plt.imsave(f'./results/test{n}.png',display_image)
 
     # plt.savefig(f'./results/test{n}.png', bbox_inches="tight")
+
+def iou(box_pred,box_targ):
+    #input size = [box_n,5]  target-1-to-all-predict
+    box_n=box_targ.shape[0]
+    #box_target num = box_n 
+    #recover to normal size ratio
+    area_pred = torch.prod(box_pred[:,[2,3]],1) #w*h
+    area_targ = torch.prod(box_targ[:,[2,3]],1) #w*h
+    Diff = torch.abs(box_pred-box_targ)
+    Summ = (box_pred+box_targ)
+    
+    Status_x = Diff[:,0]>Diff[:,2]
+    Status_y = Diff[:,1]>Diff[:,3]
+    
+    Ix = torch.zeros(box_n).float().to(device)
+    Iy = torch.zeros(box_n).float().to(device)
+    
+    if (~Status_x).sum()>0:
+        Ix[~Status_x]=(torch.min(box_pred[:,2],box_targ[:,2]))[~Status_x]
+    if (~Status_y).sum()>0:
+        Iy[~Status_y]=(torch.min(box_pred[:,3],box_targ[:,3]))[~Status_y]
+    if (Status_x).sum()>0:
+        Ix[Status_x]=(torch.clamp(0.5*Summ[:,2]-Diff[:,0],0))[Status_x]
+    if (Status_y).sum()>0:
+        Iy[Status_y]=(torch.clamp(0.5*Summ[:,3]-Diff[:,1],0))[Status_y]
+
+    area_Inter = Ix*Iy
+    out_IOU = area_Inter/(area_pred+area_targ-area_Inter+1e-6)
+
+    return out_IOU     
+    
+def NMS(class_box, class_label, class_mask, IOU_T=0.3):
+    box_n=class_box.shape[0]
+    
+    box_num = -1*torch.arange(box_n)
+    outbox = []
+    outlabel = []
+    outmask = []
+    while torch.sum(box_num>-999)>0:
+        #select prob max one as select_box
+        idx = torch.argmax(box_num)
+        outbox.append(class_box[idx])
+        outlabel.append(class_label[idx])
+        outmask.append(class_mask[idx])
+        
+        select_box = class_box[idx].repeat(box_n).view(box_n,-1)
+        #got_iou
+        select_iou = iou(class_box,select_box)
+        #iou_filter
+        mask_iou = select_iou > IOU_T
+        #delete all > IOU_threshold including the selected box
+        box_num[mask_iou] =-999
+    return torch.stack(outbox) , torch.stack(outlabel) , torch.stack(outmask)
     
 transform = T.ToTensor()
 
@@ -105,29 +183,44 @@ detector.to(device)
 # for granding ascend
 image_tensor = image_tensor.to(device)
 image_tensor.requires_grad = True
+image_tensor_origin = image_tensor.clone()
+
+bing_mask3 = torch.zeros([3,638,638],dtype=torch.bool)
 
 for i in range(epoch):
     detector.eval()
     
     results = detector(image_tensor)
+    if i ==0:
+        bing_mask_01 = results[0]['masks'][results[0]['labels']==1][1]>0.0
+        bing_mask_17 = results[0]['masks'][results[0]['labels']==1][1]>0.0
+        bing_mask = bing_mask_01 & bing_mask_17
+        
+        bing_mask3 = bing_mask.expand([3,638,638])
+    
+    s=1
+    # for s in range(len(results[0]['labels'])):
+        
     if i ==0 or i%batch==0:
         with torch.no_grad():
-            target_labels = results[0]['labels'][results[0]['labels']>1]
-            target_boxes = results[0]['boxes'][results[0]['labels']>1]
-            target_masks = results[0]['masks'][results[0]['labels']>1]
+            target_labels = results[0]['labels'][results[0]['labels']>1][:fit]
+            target_boxes = results[0]['boxes'][results[0]['labels']>1][:fit]
+            target_masks = results[0]['masks'][results[0]['labels']>1][:fit]
+            
+            target_boxes , target_labels , target_masks = NMS(target_boxes, target_labels, target_masks, IOU_T=0.3)
+            
+            # target_labels = results[0]['labels'][s:s+1]
+            # target_boxes = results[0]['boxes'][s:s+1]
+            # target_masks = results[0]['masks'][s:s+1]
             
             target = [{'boxes':target_boxes,
                        'labels':target_labels,
                        'masks':target_masks
                        }]
-    
-    # pic = image_tensor.permute(0,2,3,1).detach().numpy()[0]
-    # reT = T.Compose([T.Normalize(mean=[0., 0., 0.], std=[1/0.229, 1/0.224, 1/0.225]),
-    #                           T.Normalize(mean=[-0.485, -0.456, -0.406], std=[1., 1., 1.]),
-    #                           T.ToPILImage()])
-    
-    if i%batch==0:
+
+    if i%show_bs==0:
         pic = image_tensor[0].cpu()
+        
         reT = T.Compose([T.ToPILImage()])
     
         REV_pic = reT(pic)
@@ -135,8 +228,13 @@ for i in range(epoch):
         
         display_pic= np.array(REV_pic)
         
-        show_pic(display_pic,target_boxes,target_labels,n=i)
+        show_pic(display_pic,target_boxes,target_labels,target_masks,n=i,is_mask=True)
         print(i)
+    
+    # pic = image_tensor.permute(0,2,3,1).detach().numpy()[0]
+    # reT = T.Compose([T.Normalize(mean=[0., 0., 0.], std=[1/0.229, 1/0.224, 1/0.225]),
+    #                           T.Normalize(mean=[-0.485, -0.456, -0.406], std=[1., 1., 1.]),
+    #                           T.ToPILImage()]) 
     
     # calculate the grading
     detector.train()
@@ -149,6 +247,6 @@ for i in range(epoch):
     
     with torch.no_grad():
         image_tensor -= lr*image_tensor.grad
-
+        image_tensor[0][bing_mask3] = image_tensor_origin[0][bing_mask3]
     # zero_grad
     image_tensor.grad.zero_()
