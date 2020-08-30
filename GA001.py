@@ -19,7 +19,7 @@ import torchvision.transforms as T
 from torchvision import models
 
 
-lr = 1e-2
+lr = 1
 epoch = 10000000
 batch = 1
 show_bs = 100
@@ -179,6 +179,16 @@ image_tensor = transform(image)
 image_tensor = image_tensor.unsqueeze(0)
 print(image_tensor.size())
 
+image_path2 = './data/AA_Resnet.jpg'
+image2 = Image.open(image_path2).convert("RGB")  
+image_tensor2 = transform(image2)
+image_tensor2 = image_tensor2.unsqueeze(0)
+
+image_path3 = './results/AA_mask2.png'
+image3 = Image.open(image_path3).convert("RGB")  
+image_tensor3 = transform(image3)
+image_tensor3 = image_tensor3.unsqueeze(0)
+
 # using Mask RCNN
 detector = models.detection.maskrcnn_resnet50_fpn(pretrained=True)
 detector.to(device)
@@ -192,18 +202,33 @@ bing_mask3 = torch.zeros([3,638,638],dtype=torch.bool)
 
 t0 = time.time()
 
+detector.eval()
+image_tensor2 = image_tensor2.to(device)
+image_tensor3 = image_tensor3.to(device)
+results2 = detector(image_tensor2)
+results3 = detector(image_tensor3)
+
+bing_mask_01 = results2[0]['masks'][results2[0]['labels']==1][1]>0.5
+# bing_mask_17 = results2[0]['masks'][results2[0]['labels']==1][1]>0.5
+
+# bing_mask_001 = results3[0]['masks'][1]>0.5
+bing_mask_71 = results3[0]['masks'][71]>0.5
+bing_mask = bing_mask_01 | bing_mask_71
+
+bing_mask3 = bing_mask.expand([3,638,638])
+
 for i in range(epoch):
-    detector.eval()
-    
+    detector.eval()   
     results = detector(image_tensor)
-    if i ==0:
-        bing_mask_01 = results[0]['masks'][results[0]['labels']==1][1]>0.5
-        bing_mask_17 = results[0]['masks'][results[0]['labels']==1][1]>0.5
-        bing_mask = bing_mask_01 & bing_mask_17
-        
-        bing_mask3 = bing_mask.expand([3,638,638])
+       
+    # if i ==0:
+    #     bing_mask_01 = results2[0]['masks'][results2[0]['labels']==1][1]>0.5
+    #     # bing_mask_17 = results2[0]['masks'][results2[0]['labels']==1][1]>0.5        
+    #     bing_mask_001 = results[0]['masks'][1]>0.5
+    #     bing_mask_71 = results3[0]['masks'][71]>0.5
+    #     bing_mask = bing_mask_01 | bing_mask_001 | bing_mask_71        
+    #     bing_mask3 = bing_mask.expand([3,638,638])
     
-    s=1
     # for s in range(len(results[0]['labels'])):
         
     if i ==0 or i%batch==0:
@@ -211,12 +236,12 @@ for i in range(epoch):
             target_labels = results[0]['labels']
             target_boxes = results[0]['boxes']
             target_masks = results[0]['masks']
-            
-            # target_labels = results[0]['labels'][results[0]['labels']>1][:fit]
-            # target_boxes = results[0]['boxes'][results[0]['labels']>1][:fit]
-            # target_masks = results[0]['masks'][results[0]['labels']>1][:fit]
-            
             target_boxes , target_labels , target_masks = NMS(target_boxes, target_labels, target_masks, IOU_T=0.3)
+            
+            # # target_labels = results[0]['labels'][results[0]['labels']>1][:fit]
+            # # target_boxes = results[0]['boxes'][results[0]['labels']>1][:fit]
+            # # target_masks = results[0]['masks'][results[0]['labels']>1][:fit]
+            
             
             # target_labels = results[0]['labels'][s:s+1]
             # target_boxes = results[0]['boxes'][s:s+1]
@@ -249,6 +274,7 @@ for i in range(epoch):
     
     # calculate the grading
     detector.train()
+    detector.zero_grad()
     
     loss = detector(image_tensor,target)
     
