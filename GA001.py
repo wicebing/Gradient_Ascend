@@ -217,6 +217,12 @@ bing_mask = bing_mask_01 | bing_mask_71
 
 bing_mask3 = bing_mask.expand([3,638,638])
 
+
+box_0 = results2[0]['boxes'][results2[0]['labels']==1][1]
+label_0 = results2[0]['labels'][results2[0]['labels']==1][1]
+mask_0 = results2[0]['masks'][results2[0]['labels']==1][1]
+
+
 for i in range(epoch):
     detector.eval()   
     results = detector(image_tensor)
@@ -236,6 +242,11 @@ for i in range(epoch):
             target_labels = results[0]['labels']
             target_boxes = results[0]['boxes']
             target_masks = results[0]['masks']
+            
+            target_labels = torch.cat([label_0.unsqueeze(0),target_labels],dim=0)
+            target_boxes = torch.cat([box_0.unsqueeze(0),target_boxes],dim=0)
+            target_masks = torch.cat([mask_0.unsqueeze(0),target_masks],dim=0)
+                        
             target_boxes , target_labels , target_masks = NMS(target_boxes, target_labels, target_masks, IOU_T=0.3)
             
             # # target_labels = results[0]['labels'][results[0]['labels']>1][:fit]
@@ -260,6 +271,8 @@ for i in range(epoch):
         REV_pic = reT(pic)
         REV_pic.save('./results/AA_Resnet.png')
         
+        REV_pic.save(f'./results/results/AA_Resnet_{i}.png')
+        
         display_pic= np.array(REV_pic)
         
         show_pic(display_pic,target_boxes,target_labels,target_masks,n=i,is_mask=True)
@@ -278,11 +291,22 @@ for i in range(epoch):
     
     loss = detector(image_tensor,target)
     
-    total_loss = loss['loss_classifier']+loss['loss_mask']+loss['loss_box_reg']
+    total_loss = loss['loss_classifier']+loss['loss_box_reg']
     
     total_loss.backward()
     
     with torch.no_grad():
+        # t_mask = torch.zeros(image_tensor[0].shape,device=device,dtype=torch.bool)       
+        # for m in target[0]['masks']:
+        #     t_mask = t_mask | (m>0.5)
+        # image_tensor.grad[~t_mask.unsqueeze(0)]=0  
+        
+        image_tensor.grad[(image_tensor.grad / (image_tensor+1e-9)).abs() > 1e-2] = 0
+        
+        # std = (image_tensor.grad - torch.mean(image_tensor.grad)) / (1e-9+torch.std(image_tensor.grad))
+        # image_tensor.grad[std>1]=0
+        # image_tensor.grad[std<-1]=0
+               
         image_tensor -= lr*image_tensor.grad
         image_tensor[0][bing_mask3] = image_tensor_origin[0][bing_mask3]
     # zero_grad
