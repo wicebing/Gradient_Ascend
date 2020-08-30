@@ -23,7 +23,7 @@ lr = 1e-2
 epoch = 10000000
 batch = 1
 show_bs = 100
-fit = 50
+fit = 200
 
 device = 'cuda:0'
 
@@ -159,10 +159,11 @@ def NMS(class_box, class_label, class_mask, IOU_T=0.3):
         #got_iou
         select_iou = iou(class_box,select_box)
         #iou_filter
+        mask_iou_all = select_iou > 0.8
         mask_iou = select_iou > IOU_T
         mask_label = class_label==class_label[idx]
         #delete all > IOU_threshold including the selected box
-        box_num[mask_iou & mask_label] =-999
+        box_num[mask_iou_all | (mask_iou & mask_label)] =-999
     return torch.stack(outbox) , torch.stack(outlabel) , torch.stack(outmask)
     
 transform = T.ToTensor()
@@ -207,9 +208,13 @@ for i in range(epoch):
         
     if i ==0 or i%batch==0:
         with torch.no_grad():
-            target_labels = results[0]['labels'][results[0]['labels']>1][:fit]
-            target_boxes = results[0]['boxes'][results[0]['labels']>1][:fit]
-            target_masks = results[0]['masks'][results[0]['labels']>1][:fit]
+            target_labels = results[0]['labels']
+            target_boxes = results[0]['boxes']
+            target_masks = results[0]['masks']
+            
+            # target_labels = results[0]['labels'][results[0]['labels']>1][:fit]
+            # target_boxes = results[0]['boxes'][results[0]['labels']>1][:fit]
+            # target_masks = results[0]['masks'][results[0]['labels']>1][:fit]
             
             target_boxes , target_labels , target_masks = NMS(target_boxes, target_labels, target_masks, IOU_T=0.3)
             
