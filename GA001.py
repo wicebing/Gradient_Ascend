@@ -18,7 +18,10 @@ import torchvision.transforms as T
 from torchvision import models
 
 
-lr = 1e-1
+lr = 1e0
+epoch = 10000000
+batch = 100
+
 device = 'cuda:0'
 
 _GRAY = (218, 227, 218)
@@ -76,14 +79,21 @@ def show_pic(image,boxs,labels,n=0):
         display_image = vis_class(display_image, bbox, _COCO_INSTANCE_CATEGORY_NAMES[labels[i]])
     
     plt.figure(figsize=(10, 10),dpi=200)
-    plt.imshow(display_image)
     plt.xticks([])
     plt.yticks([])
-    plt.savefig(f'./results/test{n}.png', bbox_inches="tight")
+    plt.imsave(f'./results/test{n}.png',display_image)
+
+    # plt.savefig(f'./results/test{n}.png', bbox_inches="tight")
     
 transform = T.ToTensor()
-image_path = './results/AA_Resnet.png'
-image = Image.open(image_path).convert("RGB")
+
+try:
+    image_path = './results/AA_Resnet.png'
+    image = Image.open(image_path).convert("RGB")
+except:
+    image_path = './data/AA_Resnet.jpg'
+    print(' *** use origin picture *** ')
+    image = Image.open(image_path).convert("RGB")   
 image_tensor = transform(image)
 image_tensor = image_tensor.unsqueeze(0)
 print(image_tensor.size())
@@ -96,26 +106,27 @@ detector.to(device)
 image_tensor = image_tensor.to(device)
 image_tensor.requires_grad = True
 
-for i in range(3):
+for i in range(epoch):
     detector.eval()
     
     results = detector(image_tensor)
-    
-    target_labels = results[0]['labels'][results[0]['labels']>1]
-    target_boxes = results[0]['boxes'][results[0]['labels']>1]
-    target_masks = results[0]['masks'][results[0]['labels']>1]
-    
-    target = [{'boxes':target_boxes,
-               'labels':target_labels,
-               'masks':target_masks
-               }]
+    if i ==0 or i%batch==0:
+        with torch.no_grad():
+            target_labels = results[0]['labels'][results[0]['labels']>1]
+            target_boxes = results[0]['boxes'][results[0]['labels']>1]
+            target_masks = results[0]['masks'][results[0]['labels']>1]
+            
+            target = [{'boxes':target_boxes,
+                       'labels':target_labels,
+                       'masks':target_masks
+                       }]
     
     # pic = image_tensor.permute(0,2,3,1).detach().numpy()[0]
     # reT = T.Compose([T.Normalize(mean=[0., 0., 0.], std=[1/0.229, 1/0.224, 1/0.225]),
     #                           T.Normalize(mean=[-0.485, -0.456, -0.406], std=[1., 1., 1.]),
     #                           T.ToPILImage()])
     
-    if i%10000000==0:
+    if i%batch==0:
         pic = image_tensor[0].cpu()
         reT = T.Compose([T.ToPILImage()])
     
@@ -129,16 +140,15 @@ for i in range(3):
     
     # calculate the grading
     detector.train()
-    # zero_grad
     
     loss = detector(image_tensor,target)
     
-    total_loss = 0
+    total_loss = loss['loss_classifier']+loss['loss_mask']+loss['loss_box_reg']
     
-    for l in loss.values():
-        total_loss += l
     total_loss.backward()
     
     with torch.no_grad():
         image_tensor -= lr*image_tensor.grad
 
+    # zero_grad
+    image_tensor.grad.zero_()
