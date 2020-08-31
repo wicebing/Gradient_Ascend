@@ -19,7 +19,7 @@ import torchvision.transforms as T
 from torchvision import models
 
 
-lr = 1
+lr = 1e-3
 epoch = 10000000
 batch = 1
 show_bs = 100
@@ -336,8 +336,8 @@ for i in range(epoch):
         
         # image_tensor.grad[(image_tensor.grad / (image_tensor+1e-9)).abs() > 1e-5] = 0       
         # std = (image_tensor.grad - torch.mean(image_tensor.grad)) / (1e-9+torch.std(image_tensor.grad))
-        std = (image_tensor.grad).abs() > 1e-4
-        image_tensor.grad[std]=0
+        # std = (image_tensor.grad).abs() > 1e-4
+        # image_tensor.grad[std]=0
                
         image_tensor -= lr*image_tensor.grad
         image_tensor[0][bing_mask3] = image_tensor_origin[0][bing_mask3]
