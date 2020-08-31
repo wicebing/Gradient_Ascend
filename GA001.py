@@ -184,7 +184,7 @@ image2 = Image.open(image_path2).convert("RGB")
 image_tensor2 = transform(image2)
 image_tensor2 = image_tensor2.unsqueeze(0)
 
-image_path3 = './results/AA_mask2.png'
+image_path3 = './results/fix_feature/AA_mask2.png'
 image3 = Image.open(image_path3).convert("RGB")  
 image_tensor3 = transform(image3)
 image_tensor3 = image_tensor3.unsqueeze(0)
@@ -222,6 +222,38 @@ box_0 = results2[0]['boxes'][results2[0]['labels']==1][1]
 label_0 = results2[0]['labels'][results2[0]['labels']==1][1]
 mask_0 = results2[0]['masks'][results2[0]['labels']==1][1]
 
+image_path_trg = './results/fix_feature/target.png'
+image_trg = Image.open(image_path_trg).convert("RGB")  
+image_tensor_trg = transform(image_trg)
+image_tensor_trg = image_tensor_trg.unsqueeze(0)
+image_tensor_trg = image_tensor_trg.to(device)
+
+results_trg = detector(image_tensor_trg)
+
+with torch.no_grad():
+    target_labels = results_trg[0]['labels']
+    target_boxes = results_trg[0]['boxes']
+    target_masks = results_trg[0]['masks']
+    
+    target_labels = torch.cat([label_0.unsqueeze(0),target_labels],dim=0)
+    target_boxes = torch.cat([box_0.unsqueeze(0),target_boxes],dim=0)
+    target_masks = torch.cat([mask_0.unsqueeze(0),target_masks],dim=0)
+                
+    target_boxes , target_labels , target_masks = NMS(target_boxes, target_labels, target_masks, IOU_T=0.3)
+    
+    # # target_labels = results[0]['labels'][results[0]['labels']>1][:fit]
+    # # target_boxes = results[0]['boxes'][results[0]['labels']>1][:fit]
+    # # target_masks = results[0]['masks'][results[0]['labels']>1][:fit]
+    
+    
+    # target_labels = results[0]['labels'][s:s+1]
+    # target_boxes = results[0]['boxes'][s:s+1]
+    # target_masks = results[0]['masks'][s:s+1]
+    
+    target = [{'boxes':target_boxes,
+               'labels':target_labels,
+               'masks':target_masks
+               }]
 
 for i in range(epoch):
     detector.eval()   
@@ -237,31 +269,31 @@ for i in range(epoch):
     
     # for s in range(len(results[0]['labels'])):
         
-    if i ==0 or i%batch==0:
-        with torch.no_grad():
-            target_labels = results[0]['labels']
-            target_boxes = results[0]['boxes']
-            target_masks = results[0]['masks']
+    # if i ==0 or i%batch==0:
+    #     with torch.no_grad():
+    #         target_labels = results[0]['labels']
+    #         target_boxes = results[0]['boxes']
+    #         target_masks = results[0]['masks']
             
-            target_labels = torch.cat([label_0.unsqueeze(0),target_labels],dim=0)
-            target_boxes = torch.cat([box_0.unsqueeze(0),target_boxes],dim=0)
-            target_masks = torch.cat([mask_0.unsqueeze(0),target_masks],dim=0)
+    #         target_labels = torch.cat([label_0.unsqueeze(0),target_labels],dim=0)
+    #         target_boxes = torch.cat([box_0.unsqueeze(0),target_boxes],dim=0)
+    #         target_masks = torch.cat([mask_0.unsqueeze(0),target_masks],dim=0)
                         
-            target_boxes , target_labels , target_masks = NMS(target_boxes, target_labels, target_masks, IOU_T=0.3)
+    #         target_boxes , target_labels , target_masks = NMS(target_boxes, target_labels, target_masks, IOU_T=0.3)
             
-            # # target_labels = results[0]['labels'][results[0]['labels']>1][:fit]
-            # # target_boxes = results[0]['boxes'][results[0]['labels']>1][:fit]
-            # # target_masks = results[0]['masks'][results[0]['labels']>1][:fit]
+    #         # # target_labels = results[0]['labels'][results[0]['labels']>1][:fit]
+    #         # # target_boxes = results[0]['boxes'][results[0]['labels']>1][:fit]
+    #         # # target_masks = results[0]['masks'][results[0]['labels']>1][:fit]
             
             
-            # target_labels = results[0]['labels'][s:s+1]
-            # target_boxes = results[0]['boxes'][s:s+1]
-            # target_masks = results[0]['masks'][s:s+1]
+    #         # target_labels = results[0]['labels'][s:s+1]
+    #         # target_boxes = results[0]['boxes'][s:s+1]
+    #         # target_masks = results[0]['masks'][s:s+1]
             
-            target = [{'boxes':target_boxes,
-                       'labels':target_labels,
-                       'masks':target_masks
-                       }]
+    #         target = [{'boxes':target_boxes,
+    #                    'labels':target_labels,
+    #                    'masks':target_masks
+    #                    }]
 
     if i%show_bs==0:
         pic = image_tensor[0].cpu()
@@ -275,7 +307,8 @@ for i in range(epoch):
         
         display_pic= np.array(REV_pic)
         
-        show_pic(display_pic,target_boxes,target_labels,target_masks,n=i,is_mask=True)
+        if i%10000==0:
+            show_pic(display_pic,target_boxes,target_labels,target_masks,n=i,is_mask=True)
         print(i)
         
         print(f'remain time: {epoch*(time.time()-t0)/(60*i+1)}')
@@ -301,11 +334,10 @@ for i in range(epoch):
         #     t_mask = t_mask | (m>0.5)
         # image_tensor.grad[~t_mask.unsqueeze(0)]=0  
         
-        image_tensor.grad[(image_tensor.grad / (image_tensor+1e-9)).abs() > 1e-2] = 0
-        
+        # image_tensor.grad[(image_tensor.grad / (image_tensor+1e-9)).abs() > 1e-5] = 0       
         # std = (image_tensor.grad - torch.mean(image_tensor.grad)) / (1e-9+torch.std(image_tensor.grad))
-        # image_tensor.grad[std>1]=0
-        # image_tensor.grad[std<-1]=0
+        std = (image_tensor.grad).abs() > 1e-4
+        image_tensor.grad[std]=0
                
         image_tensor -= lr*image_tensor.grad
         image_tensor[0][bing_mask3] = image_tensor_origin[0][bing_mask3]
