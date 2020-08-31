@@ -23,7 +23,7 @@ from torchvision import models
 reference code from https://gist.github.com/rowantseng/276363b8a89fbb84d77ab968866abe36
 '''
 
-lr = 1e-5
+lr = 10
 epoch = 10000000
 batch = 1
 show_bs = 100
@@ -172,6 +172,9 @@ def NMS(class_box, class_label, class_mask, IOU_T=0.3):
     
 transform = T.ToTensor()
 
+T_image = T.Compose([T.ToTensor(),
+                     T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+
 try:
     image_path = './results/AA_Resnet.png'
     image = Image.open(image_path).convert("RGB")
@@ -179,7 +182,7 @@ except:
     image_path = './data/AA_Resnet.jpg'
     print(' *** use origin picture *** ')
     image = Image.open(image_path).convert("RGB")   
-image_tensor = transform(image)
+image_tensor = T_image(image)
 image_tensor = image_tensor.unsqueeze(0)
 print(image_tensor.size())
 
@@ -304,9 +307,18 @@ for i in range(epoch):
     if i%show_bs==0:
         pic = image_tensor[0].cpu()
         
-        reT = T.Compose([T.ToPILImage()])
-    
+        # reT = T.Compose([T.ToPILImage()])        
+        reT = T.Compose([T.Normalize(mean=[0., 0., 0.], std=[1/0.229, 1/0.224, 1/0.225]),
+                         T.Normalize(mean=[-0.485, -0.456, -0.406], std=[1., 1., 1.]),
+                         ])
+        reT2 = T.ToPILImage()
+        
         REV_pic = reT(pic)
+        REV_pic[REV_pic<0]=0.
+        REV_pic[REV_pic>255]=255.
+        
+        REV_pic = reT2(REV_pic)
+        
         REV_pic.save('./results/AA_Resnet.png')
         
         REV_pic.save(f'./results/results/AA_Resnet_{i}.png')
@@ -320,9 +332,7 @@ for i in range(epoch):
         print(f'remain time: {epoch*(time.time()-t0)/(60*i+1)}')
     
     # pic = image_tensor.permute(0,2,3,1).detach().numpy()[0]
-    # reT = T.Compose([T.Normalize(mean=[0., 0., 0.], std=[1/0.229, 1/0.224, 1/0.225]),
-    #                           T.Normalize(mean=[-0.485, -0.456, -0.406], std=[1., 1., 1.]),
-    #                           T.ToPILImage()]) 
+
     
     # calculate the grading
     # detector.train()
@@ -330,7 +340,10 @@ for i in range(epoch):
     
     loss = detector(image_tensor,target)
     
-    total_loss = loss['loss_classifier']+loss['loss_box_reg']+loss['loss_mask']+loss['loss_rpn_box_reg']
+    if i > 1e5:
+        total_loss = loss['loss_classifier']+loss['loss_box_reg']+loss['loss_mask']+loss['loss_rpn_box_reg']
+    else:
+        total_loss = loss['loss_classifier']+loss['loss_box_reg']+loss['loss_rpn_box_reg']
     
     total_loss.backward()
     
