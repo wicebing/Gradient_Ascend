@@ -315,7 +315,7 @@ for i in range(epoch):
         
         REV_pic = reT(pic)
         REV_pic[REV_pic<0]=0.
-        REV_pic[REV_pic>255]=255.
+        REV_pic[REV_pic>1]=1.
         
         REV_pic = reT2(REV_pic)
         
