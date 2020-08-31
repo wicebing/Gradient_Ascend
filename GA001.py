@@ -19,7 +19,11 @@ import torchvision.transforms as T
 from torchvision import models
 
 
-lr = 1e-3
+'''
+reference code from https://gist.github.com/rowantseng/276363b8a89fbb84d77ab968866abe36
+'''
+
+lr = 1e-5
 epoch = 10000000
 batch = 1
 show_bs = 100
@@ -255,9 +259,11 @@ with torch.no_grad():
                'masks':target_masks
                }]
 
+detector.train()
+
 for i in range(epoch):
-    detector.eval()   
-    results = detector(image_tensor)
+    # detector.eval()   
+    # results = detector(image_tensor)
        
     # if i ==0:
     #     bing_mask_01 = results2[0]['masks'][results2[0]['labels']==1][1]>0.5
@@ -319,12 +325,12 @@ for i in range(epoch):
     #                           T.ToPILImage()]) 
     
     # calculate the grading
-    detector.train()
+    # detector.train()
     detector.zero_grad()
     
     loss = detector(image_tensor,target)
     
-    total_loss = loss['loss_classifier']+loss['loss_box_reg']
+    total_loss = loss['loss_classifier']+loss['loss_box_reg']+loss['loss_mask']+loss['loss_rpn_box_reg']
     
     total_loss.backward()
     
